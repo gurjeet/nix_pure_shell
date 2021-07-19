@@ -62,6 +62,7 @@ stdenv.mkDerivation rec {
 
     # Extract the first line from the rcfile.
     rc_file_line_1=$(head -1 "$rc_file")
+    rc_file_line_2=$(head -2 "$rc_file" | tail -1)
 
     # Check if the --run or --command option was used; if yes, the second
     # wildcard pattern will represent the value of the --run/--command option
@@ -69,23 +70,33 @@ stdenv.mkDerivation rec {
     [[ "$rc_file_line_1" =~ .*shopt\ -s\ execfail\;(.*) ]]  \
     && run_args="''${BASH_REMATCH[1]}"
 
-    # If nix-shell was invoked with --run option, pass that value to our shell,
-    # else just start the shell in interactive mode.
+    # When an empty string is passed to the --run option, nix-shell exits
+    # cleanly, whereas in our case the interactive shell is invoked.  Replace
+    # the empty string with a blank (spaces only) string, so that our behaviour
+    # matches that of nix-shell.
+    if [[ -z "$run_args" && "$rc_file_line_2" == "exit" ]]; then
+      run_args=' '
+    fi
+
+    # TODO: Support multi-line value of --run option; capture all lines between
+    # 'shopt -s execfail' and 'exit', and pass them to the new shell.
     #
     # Note that we don't support the nix-shell's --command option, yet, because
     # that option promises to run the command(s) in an interactive shell. We
     # currently don't have a way to do that. Moreover, by looking at the
     # contents of the rcfile, we currently cannot determine if the --run option
     # was used or --command option was used.
-    [[ -n "$run_args" ]]          \
-    && exec env -i                \
-      PATH="$PATH"                \
-      TERM="$TERM"                \
-      bash --norc -c "$run_args"  \
-    || exec env -i                \
-      PATH="$PATH"                \
-      TERM="$TERM"                \
-      bash --norc
+    #
+    # TODO: Support the --command option; if the last line of the rcfile does
+    # *not* contain the word exit by itself, it's very likely a --command
+    # invocation, rather than the --run invocation.
+
+    # If nix-shell was invoked with --run option, pass that value to our shell,
+    # else just start the shell in interactive mode.
+    exec env -i                \
+      PATH="$PATH"             \
+      TERM="$TERM"             \
+      bash --norc ''${run_args:+-c} ''${run_args:+"$run_args"}
   '';
 }
 
