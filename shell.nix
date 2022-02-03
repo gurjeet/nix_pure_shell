@@ -155,71 +155,21 @@ stdenv.mkDerivation rec {
   # Note that the 2 single-quotes ('') below are the Nix language's escape
   # sequemce to escape the ${ (DOLLAR_CURLY) in a string.
   shellHook = ''
-    PATH="${builtins.concatStringsSep ":" (map (x: x + "/bin") allBinPackages)}"
+  :<<EOF
+    #set -x
+    local func_names=$(declare -F | cut -d ' ' -f 1)
+    local var_names=$( (set -o posix; set) | cut -d '=' -f 1 | grep -vE 'stdenv')
+    for c in $func_names; do unset -f $c; done
+    for c in $var_names; do unset -v $c; done
+    export HOME="$(mktemp -d)"
+    echo $stdenv
+    echo $HOME
+    #set -x
+    #source "$stdenv"/setup
+EOF
 
-    # Get the last element's value from BASH_SOURCE[] array; this is the path
-    # of rcfile passed by nix-shell.
-    rc_file="''${BASH_SOURCE[''${#BASH_SOURCE[*]}-1]}"
-
-    # Extract the first line from the rcfile.
-    rc_file_line_1=$(head -1 "$rc_file")
-    rc_file_line_2=$(head -2 "$rc_file" | tail -1)
-
-    # Check if the --run or --command option was used; if yes, the second
-    # wildcard pattern will represent the value of the --run/--command option
-    # to nix-shell.
-    [[ "$rc_file_line_1" =~ .*shopt\ -s\ execfail\;(.*) ]]  \
-    && run_args="''${BASH_REMATCH[1]}"
-
-    # When an empty string is passed to the --run option, nix-shell exits
-    # cleanly, whereas in our case the interactive shell is invoked. Replace
-    # the empty string with a blank (spaces only) string, so that our behaviour
-    # matches that of nix-shell.
-    if [[ -z "$run_args" && "$rc_file_line_2" == "exit" ]]; then
-      run_args=' '
-    fi
-
-    # TODO: Support multi-line value of --run option; capture all lines between
-    # 'shopt -s execfail' and 'exit', and pass them to the new shell.
-    #
-    # Note that we don't support nix-shell's --command option, yet, because
-    # that option promises to run the command(s) in an interactive shell. We
-    # currently don't have a way to do that. Moreover, by looking at the
-    # contents of the rcfile, we currently cannot determine if the --run option
-    # was used or --command option was used.
-    #
-    # TODO: Support the --command option; if the last line of the rcfile does
-    # *not* contain the word 'exit' all by itself, it's very likely a --command
-    # invocation, rather than the --run invocation.
-
-    # If nix-shell was invoked with --run option, pass that value to our shell,
-    # else just start the shell in interactive mode. We use Bash's string
-    # operator ''${x:+} to achieve this.
-    exec env -i                                                                 \
-      PATH="$PATH${_if stdenv.isDarwin '':''${PWD}/nix_impure_files/macos'' ""}"\
-      TERM="''${TERM}"                                                          \
-      CC="${_if useCcache "ccache" "" } ${ccName}"                              \
-      JOBS=${toString jobs}                                                     \
-      PKG_CONFIG_PATH="$PKG_CONFIG_PATH_FOR_TARGET"                             \
-      LDFLAGS="$( pkg-config --libs-only-L   readline zlib libcrypto libxml-2.0)"\
-      CPPFLAGS="$(pkg-config --cflags-only-I readline zlib libcrypto libxml-2.0)"\
-      bash --norc ''${run_args:+-c} ''${run_args:+"$run_args"}
-
-      #${if stdenv.hostPlatform.isDarwin then "AR=/usr/bin/ar" else ""}                \
-
-      #pkg-config --cflags-only-I  $(pkg-config --list-all | cut -d ' ' -f 1)
-      #LDFLAGS="${         builtins.concatStringsSep ""  (map (x: " -L" + x + "/lib"     ) libPackages)}" \
-      #CPPFLAGS="${        builtins.concatStringsSep ""  (map (x: " -I" + x + "/include" ) libPackages)}" \
-      #LD_LIBRARY_PATH="${ builtins.concatStringsSep ":" (map (x:         x + "/lib"     ) libPackages)}" \
-
-      out="$out"                                                                      \
-      #${if stdenv.hostPlatform.isDarwin then "AS=/usr/bin/as" else ""}  \
-      #${if stdenv.hostPlatform.isDarwin then "RANLIB=/usr/bin/ranlib" else ""}             \
-      #PKG_CONFIG_PATH_FOR_TARGET="$PKG_CONFIG_PATH_FOR_TARGET"\
-      #PKG_CONFIG_PATH_x86_64_apple_darwin="$PKG_CONFIG_PATH_x86_64_apple_darwin"\
-      #NIX_PKG_CONFIG_WRAPPER_TARGET_TARGET_x86_64_apple_darwin="$NIX_PKG_CONFIG_WRAPPER_TARGET_TARGET_x86_64_apple_darwin"\
-      #PKG_CONFIG_FOR_TARGET="$PKG_CONFIG_FOR_TARGET"\
-      #NIX_PKG_CONFIG_WRAPPER_FLAGS_SET_x86_64_apple_darwin="$NIX_PKG_CONFIG_WRAPPER_FLAGS_SET_x86_64_apple_darwin"\
+    PS1='nix> '
+    echo exec env -i "stdenv=$stdenv" "out=$out" bash --norc --noprofile
   '';
 }
 
